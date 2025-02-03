@@ -115,7 +115,7 @@ for (t in 1:10) {
   Mt <- as.numeric(maturity - day) / 365  
   price <- as.numeric(close_matrix[, t]) 
   coupon <- bond_data$coupon / 2  
-  spot_matrix[1, t] <- (face_value / price[1]) - 1
+  spot_matrix[1, t] <- ((coupon[1]+face_value )/ price[1]) - 1
 
   for (bond_order in 2:11) {
 
