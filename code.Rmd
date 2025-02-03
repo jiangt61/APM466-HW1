@@ -1,0 +1,267 @@
+### Read bond data
+```{r}
+library(readr)
+bond_data <- read_csv("bond_data.csv")
+```
+### Set up the data
+```{r}
+trading_dates<- as.Date(colnames(bond_data)[6:15], format = "%Y/%m/%d")
+bond_data$issue_time<- as.Date(bond_data$issue_time, format = "%Y/%m/%d")
+bond_data$maturity_time<- as.Date(bond_data$maturity_time, format = "%Y/%m/%d")
+coupon <- bond_data$coupon*0.01
+```
+### close_matrix
+```{r}
+close_matrix <- as.matrix(bond_data[1:11, 6:15])
+print(close_matrix)
+
+```
+
+### YTM
+Firstly，we will calculate the YTM for each bonds mature in different date. It is important to know that the bonds paying semi-annually, so far we need consider them in each 0.5 time period.
+
+```{r}
+# make an ytm matrix to collect the result
+ytm_matrix <- matrix(NA, nrow = 11, ncol = 10) 
+
+
+freq <- 2  
+face_value <- 100
+
+# loop
+for (bond_order in 1:11){
+  for ( t in 1:10) {
+  bond_name <- bond_data$name[bond_order]  
+  maturity <- as.Date(bond_data$maturity_time[bond_order])  
+  coupon <- bond_data$coupon[bond_order]/2  # semi-annually payment
+  close_price <- as.numeric(close_matrix[bond_order, t])  
+  day <- as.Date(trading_dates[t])  
+### According to the continuous discounting   
+    ytm_function <- function(x) {
+      value_1 <- coupon * exp(-x * as.numeric(maturity - day) / 365) + 
+               face_value * exp(-x * as.numeric(maturity - day) / 365) -
+               close_price 
+
+      if (bond_order >= 2) {
+        intervals <- seq(-0.5, -5.0, by = -0.5) 
+        extra_terms <- intervals[1:(bond_order - 1)] 
+        value_1 <- value_1 + sum(coupon * exp(-x * (as.numeric(maturity - day) + extra_terms)))
+      }
+      return(value_1)
+    }
+
+    ytm_matrix[bond_order, t] <- 
+      uniroot(ytm_function, interval = c(-1, 1))$root
+  }
+}
+
+print(ytm_matrix)
+
+```
+### turn the matrix into data frame
+```{r}
+ytmdataframe <- as.data.frame(ytm_matrix)
+colnames(ytmdataframe) <- format(trading_dates)
+rownames(ytmdataframe) <- format(bond_data$name)
+print(ytmdataframe)
+ 
+```
+
+### YTM Plot
+```{r}
+library(ggplot2)
+library(readr)
+
+ytmdataframe$mature <- c("0.2","0.7","1.2","1.7","2.2","2.7","3.2","3.7","4.2","4.7","5.2")
+## randomly select
+
+color_ytm = c("2025-01-06" = "red", "2025-01-07" = "blue",
+              "2025-01-08" = "black", "2025-01-09" = "green",
+              "2025-01-10" = "yellow", "2025-01-13" = "purple",
+              "2025-01-14" = "pink", "2025-01-15" = "grey",
+              "2025-01-16" = "darkblue","2025-01-17" = "orange")
+
+ggplot(ytmdataframe, aes(x = mature)) +
+    geom_line(aes(y = `2025-01-06`, color = "2025-01-06", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-07`, color = "2025-01-07", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-08`, color = "2025-01-08", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-09`, color = "2025-01-09", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-10`, color = "2025-01-10", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-13`, color = "2025-01-13", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-14`, color = "2025-01-14", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-15`, color = "2025-01-15", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-16`, color = "2025-01-16", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-17`, color = "2025-01-17", group = 1), size = 1) +
+    labs(x = "Time to Maturity (Years)", 
+         y = "Yield to Maturity", 
+         title = "Figure1: YTM Curve",
+         color = "Date") +
+    scale_color_manual(values = color_ytm) +
+    theme_minimal()
+
+```
+### Spot Rate
+```{r}
+### we will plan to calculate different spot rate according to the different trading date.
+
+
+spot_matrix <- matrix(NA, nrow = 11, ncol = 10)
+face_value <- 100  
+
+# Bootstrapping
+for (t in 1:10) {
+  maturity <- as.Date(bond_data$maturity_time) 
+  day <- as.Date(trading_dates[t])  
+  Mt <- as.numeric(maturity - day) / 365  
+  price <- as.numeric(close_matrix[, t]) 
+  coupon <- bond_data$coupon / 2  
+  spot_matrix[1, t] <- (face_value / price[1]) - 1
+
+  for (bond_order in 2:11) {
+
+    pv <- sum(coupon[1:(bond_order - 1)] / 
+                ((1 + spot_matrix[1:(bond_order - 1), t])^(1:(bond_order - 1))))
+    
+    ## function define
+    spot_function <- function(x) {
+      pv + (face_value + coupon[bond_order]) / ((1 + x)^Mt[bond_order]) - price[bond_order]
+    }
+spot_matrix[bond_order, t] <- uniroot(spot_function, interval = c(0, 1))$root
+  }
+}
+
+
+print(spot_matrix)
+
+
+
+```
+### turn the matrix into data frame
+```{r}
+spotdataframe <- as.data.frame(spot_matrix)
+colnames(spotdataframe) <- format(trading_dates)
+rownames(spotdataframe) <- format(bond_data$name)
+print(spotdataframe)
+ 
+```
+
+```{r}
+spotdataframe$mature <- c("0.2","0.7","1.2","1.7","2.2","2.7","3.2","3.7","4.2","4.7","5.2")
+## randomly select
+
+color_ytm = c("2025-01-06" = "red", "2025-01-07" = "blue",
+              "2025-01-08" = "black", "2025-01-09" = "green",
+              "2025-01-10" = "yellow", "2025-01-13" = "purple",
+              "2025-01-14" = "pink", "2025-01-15" = "grey",
+              "2025-01-16" = "darkblue","2025-01-17" = "orange")
+
+ggplot(spotdataframe, aes(x = mature)) +
+    geom_line(aes(y = `2025-01-06`, color = "2025-01-06", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-07`, color = "2025-01-07", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-08`, color = "2025-01-08", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-09`, color = "2025-01-09", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-10`, color = "2025-01-10", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-13`, color = "2025-01-13", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-14`, color = "2025-01-14", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-15`, color = "2025-01-15", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-16`, color = "2025-01-16", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-17`, color = "2025-01-17", group = 1), size = 1) +
+    labs(x = "Time to Maturity (Years)", 
+         y = "Spot Rate", 
+         title = "Figure2 ：Spot Curve",
+         color = "Date") +
+    scale_color_manual(values = color_ytm) +
+    theme_minimal()
+
+```
+
+### Forward Rate
+```{r}
+forward_matrix <- matrix(NA, nrow = 4, ncol = length(trading_dates))
+for (t in 1:10) {  
+  S1 <- spot_matrix[1, t] 
+  for ( a in 2:5) {  
+    ST <- spot_matrix[a , t] 
+    forward_matrix[a-1, t] <- ((1 + ST)^a / (1 + S1)^1)^(1 / (a - 1)) - 1
+  }
+}
+forward_matrix
+
+
+```
+
+### 
+```{r}
+forwarddataframe <- as.data.frame(forward_matrix)
+colnames(forwarddataframe) <- format(trading_dates)
+rownames(forwarddataframe) <- format(c("1yr-1yr", "1yr-2yr", "1yr-3yr", "1yr-4yr"))
+print(forwarddataframe)
+```
+### plot
+```{r}
+forwarddataframe$mature <- c("1yr-1yr", "1yr-2yr", "1yr-3yr", "1yr-4yr")
+## randomly select
+
+color_ytm = c("2025-01-06" = "red", "2025-01-07" = "blue",
+              "2025-01-08" = "black", "2025-01-09" = "green",
+              "2025-01-10" = "yellow", "2025-01-13" = "purple",
+              "2025-01-14" = "pink", "2025-01-15" = "grey",
+              "2025-01-16" = "darkblue","2025-01-17" = "orange")
+
+ggplot(forwarddataframe, aes(x = mature)) +
+    geom_line(aes(y = `2025-01-06`, color = "2025-01-06", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-07`, color = "2025-01-07", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-08`, color = "2025-01-08", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-09`, color = "2025-01-09", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-10`, color = "2025-01-10", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-13`, color = "2025-01-13", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-14`, color = "2025-01-14", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-15`, color = "2025-01-15", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-16`, color = "2025-01-16", group = 1), size = 1) +
+    geom_line(aes(y = `2025-01-17`, color = "2025-01-17", group = 1), size = 1) +
+    labs(x = "Time to Maturity (Years)", 
+         y = "Forward rate", 
+         title = "Figure3: Forward Curve",
+         color = "Date") +
+    scale_color_manual(values = color_ytm) +
+    theme_minimal()
+
+
+```
+
+### 5 & 6
+```{r}
+### YTM
+yieldreturn <- matrix(NA,ncol = 5, nrow = 9)
+for (j in 1:9) {
+  for (i in 1:5) {
+  yieldreturn[j,i]=log(ytm_matrix[i,j+1]/ytm_matrix[i,j])
+  }
+}
+yieldreturn
+cov_yieldreturn = round(cov(yieldreturn, yieldreturn),7)
+cov_yieldreturn
+
+eigen_yieldreturn <- eigen(cov_yieldreturn)
+round(eigen_yieldreturn$values,7)
+round(eigen_yieldreturn$vectors, 7)
+
+### Forward
+forwardreturn <- matrix(NA, ncol = 4, nrow = 9)
+for (j in 1:9) {
+  for (i in 1:4) {
+  forwardreturn[j,i]=log(forward_matrix[i,j+1]/forward_matrix[i,j])
+  }
+}
+forwardreturn
+cov_forwardreturn = round(cov(forwardreturn, forwardreturn),7)
+cov_forwardreturn
+
+eigen_forwardreturn <- eigen(cov_forwardreturn)
+round(eigen_forwardreturn$values,7)
+round(eigen_forwardreturn$vectors, 7)
+
+
+
+```
+
